@@ -2870,13 +2870,24 @@ async def expiry_job(context: ContextTypes.DEFAULT_TYPE):
 
 async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    await q.answer()
-    action, appt_id = q.data.split(":")
+    action, appt_id = q.data.split(":", 1)
+    if action not in {"ok", "no", "yes", "keep"}:
+        await q.answer("Неизвестное действие.", show_alert=True)
+        return
+
     with db() as c:
         appt = c.execute("SELECT * FROM appointments WHERE id=?", (int(appt_id),)).fetchone()
     if not appt:
+        await q.answer("Запись не найдена.", show_alert=True)
         return
 
+    # Кнопки подтверждения и отмены доступны только клиенту, которому адресована запись.
+    # Проверка нужна и для yes/keep — эти кнопки появляются после запроса отмены.
+    if appt["client_chat"] is None or appt["client_chat"] != q.from_user.id:
+        await q.answer("Эта кнопка предназначена другому пользователю.", show_alert=True)
+        return
+
+    await q.answer()
     now = time.time()
     if appt["status"] == "cancelled":
         await q.edit_message_text("Эта запись уже отменена.")
